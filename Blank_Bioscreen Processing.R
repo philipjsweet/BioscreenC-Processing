@@ -14,22 +14,25 @@
 # Fill out the following variables
 ###################################
 
-file_name = "Bioscreen_output.csv"
-key_name = "Bioscreen_key.csv"
-saved_file_name ="Tidy_output.csv"
+file_name = "Example_BioscreenExperimentData.csv"
+key_name = "Example_Bioscreen_key.csv"
+saved_file_name ="Example_Tidy_output.csv"
 saved_raw_name = "raw.dataforcurver.csv"
 
-var = 4 ## total number of coditions/doses/stains
+var = 6 ## total number of coditions/doses/stains
 rep = 6 ## biological replicates 
 
 ### Set the working directory to your project folder
-setwd("~/Google Drive/2017-2018/Contreras Lab/R Based Workflow/Drad Strains")
+setwd("~/Desktop/Bioscreen Example")
 
 ## Which columns in the raw data file are the blanks?
-blank_positions <- c(11,21,31,41,51,61,71,81) ##including time
+## Are your blankes at the bottom row and do you have 6 bio reps? If yes, set as TRUE 
+## If your blanks are not, then fill in "blanks" vector
+Blank_row = TRUE
+blanks <- c("includes time (n+1)")
 
 ## How many total columns from the data file do you want to read in?
-number_of_wells = 80
+number_of_wells = 120
 
 ## What was the time interval of the Bioscreen run?
 interval = 15
@@ -44,7 +47,6 @@ library(tidyr)
 library(cowplot)
 library(growthrates)
 library(dplyr)
-library(growthcurver)
 library(reshape2)
 
 ############################
@@ -56,6 +58,12 @@ bioscreen<-read.csv(file_name)
 bioscreen_edit <-bioscreen[,1:(number_of_wells+1)]
 
 ## Set up Blanks 
+if(Blank_row == TRUE) {
+  blank_positions <- seq(from = 11, to = ((var*20)+1), by = 10)
+} else {
+  blank_positions = blanks
+}
+
 blanks <- subset(bioscreen, select=c(blank_positions))
 blanks$average <- c(rowMeans(blanks))
 ## can be accesed via blanks[average]
@@ -106,12 +114,12 @@ write.csv(Long_data, saved_file_name)
 ########################################################
 
 Long_data %>% filter(Time >= 15) -> filtered_data
-filtered_data %>% filter(Time <= 300 ) -> filtered_data
+filtered_data %>% filter(Time <= 1000 ) -> filtered_data
 
 Curve_plotA<- ggplot(filtered_data, aes(x=(Time/60), y=OD600, color=Dose)) +
   geom_point(size=.50) +
   labs(x="Time (Hours)", y="Abs. at OD600 nm") +
-  labs(title = "NAME ME \n SOMETHING") + 
+  labs(title = "All Growth Data\n by Strain and Stress ") + 
   theme(axis.text.x=element_text(angle=45, vjust =1, hjust = 1, size = 20)) +
   theme(axis.text.y=element_text(size = 20))+
   theme(axis.title.y=element_text(size = 20))+
@@ -124,12 +132,12 @@ Curve_plotA
 ## The ggplot command must be updated for the x, y and color variables 
 ########################################################
 
-Long_data %>% filter(Time >= 15) %>% filter(Time <= 800 ) -> filtered_data
+Long_data %>% filter(Time >= 15) %>% filter(Time <= 1000 ) -> filtered_data
 
 Curve_plotB<- ggplot(data=filtered_data, aes(x=(Time/60), y=OD600, color=Dose)) +
   geom_smooth(size=1.5, span = 0.3) +
   labs(x="Time (Hours)", y="Abs. at OD600 nm") +
-  labs(title = "NAME ME \n SOMETHING") + 
+  labs(title = "Average Growth \n by Stress") + 
   theme(axis.text.x=element_text(angle=45, vjust =1, hjust = 1, size = 20)) +
   theme(axis.text.y=element_text(size = 20))+
   theme(axis.title.y=element_text(size = 20))+
@@ -140,8 +148,8 @@ Curve_plotB
 ##### Export scatter plots ######
 ## Update file name
 ##################################
-final_figure <- plot_grid(Curve_plotB, Curve_plotA, ncol = 2)
-save_plot("NAME_ME.pdf", final_figure)   
+final_figure <- plot_grid(Curve_plotB, Curve_plotA, ncol ncol = 2)
+ggsave(plot = final_figure , file = "Example_Growth_curves.pdf", device= "pdf", width= 16, height=6, units="in") 
 
 
 ############ Max growth rate #########
@@ -149,25 +157,34 @@ save_plot("NAME_ME.pdf", final_figure)
 ## produce a box and wisker to discribe the variation in doubling time. 
 ## This works best if you filter out the later timepoints. 
 ## Manually check the individual plots that are output to ensure that the correct 
-## regon is being measured by growthrates
+## regon is being measured by growthrates. 
+## There are two options here, run both and see which fits your data better
 #######################################
+
+
+################################################################################################################
+################     All_slpines       ##################
+## fits to the whole curve 
+##################################################################
 
 Long_data %>% filter(Time <= 400) -> more100
 more100 %>% filter(OD600 >= 0) -> more100
 
-easy_linear_data <- all_easylinear(OD600 ~ Time | Dose + Well, data = more100)
-plot(easy_linear_data)
-coef(easy_linear_data)
-growthrates <-coef(easy_linear_data) 
-
-growthrates <- as.data.frame(growthrates) ## make dataframe
-
+all_splines_data <- all_splines(OD600 ~ Time | Dose + Well, data = more100, spar = .5)
+plot(all_splines_data)
+coef(all_splines_data)
+growthrates <-as.data.frame(coef(all_splines_data))
 
 colnames(growthrates) <-c("y0","Max_Growth_Rate") ##name columns
 
 growthrates<-rownames_to_column(growthrates, var = "Dose") ##make names a column
 
 growthrates %>% separate(Dose, c("Dose","Well")) -> DoublingData
+
+### Filter out an strains that didn't grow
+
+DoublingData %>% filter(Dose != "KD10kGy" ) %>% filter(Dose != "KDsham" ) -> DoublingData
+
 
 ### Doubling time
 dt_v = vector('numeric')
@@ -178,6 +195,7 @@ for (i in 1:(len)){
 }
 
 DoublingData <- add_column(DoublingData, Double_Time = dt_v, .after = 3)
+DoublingData %>% arrange(Dose) -> DoublingData
 
 ### Filter out crazy data based on individual plots
 
@@ -187,13 +205,61 @@ DoublingData <- add_column(DoublingData, Double_Time = dt_v, .after = 3)
 growth_plot <- ggplot(data=DoublingData, aes(x=(Dose), Double_Time)) +
   geom_boxplot() +
   labs(x="Stress", y="Doubling Time (min)") +
-  labs(title = "TITLE OF THE DOUBLING TIME", size = 20) + 
+  labs(title = "Effects of Dsr2 levels on Cell Divison \n Post Ionizng Radiation", size = 20) + 
   theme(plot.title = element_text(hjust = 0.5)) +
   theme(axis.text.x=element_text(angle=45, vjust =1, hjust = 1, size = 15))+
-  theme(axis.text.y=element_text( size = 15))
+  theme(axis.text.y=element_text( size = 15)) +
+  ylim(5,200)
 growth_plot
 
-ggsave(plot = growth_plot , file = "NAME_ME.pdf", device= "pdf", width=6, height=6, units="in")
+ggsave(plot = growth_plot , file = "Example_Doubling_Times.pdf", device= "pdf", width=6, height=6, units="in")
 ################################################################################################################
+################     Simple Linear         ##################
+## This test will also produce the lab time, the draw back is that it finds the fastest rate
+##################################################################
+Long_data %>% filter(Time <= 400) -> more100
+more100 %>% filter(OD600 >= 0) -> more100
+
+easylinear_data <- all_easylinear(OD600 ~ Time | Dose + Well, data = more100)
+plot(easylinear_data)
+coef(easylinear_data)
+growthrates <-as.data.frame(coef(easylinear_data))
+
+colnames(growthrates) <-c("y0","Max_Growth_Rate") ##name columns
+
+growthrates<-rownames_to_column(growthrates, var = "Dose") ##make names a column
+
+growthrates %>% separate(Dose, c("Dose","Well")) -> DoublingData
+
+### Filter out an strains that didn't grow
+
+DoublingData %>% filter(Dose != "KD10kGy" ) %>% filter(Dose != "KDsham" ) -> DoublingData
+
+
+### Doubling time
+dt_v = vector('numeric')
+len = nrow(DoublingData)
+for (i in 1:(len)){
+  dt_s = (log(2))/(DoublingData[(i),4])
+  dt_v = append(dt_v, dt_s) 
+}
+
+DoublingData <- add_column(DoublingData, Double_Time = dt_v, .after = 3)
+DoublingData %>% arrange(Dose) -> DoublingData
+
+### Filter out crazy data based on individual plots
+
+########### Boxplot of the doubling times ############
+## The ouput file name must be updated. 
+#####################################################
+growth_plot <- ggplot(data=DoublingData, aes(x=(Dose), Double_Time)) +
+  geom_boxplot() +
+  labs(x="Stress", y="Doubling Time (min)") +
+  labs(title = "Effects of Dsr2 levels on Cell Divison \n Post Ionizng Radiation", size = 20) + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(axis.text.x=element_text(angle=45, vjust =1, hjust = 1, size = 15))+
+  theme(axis.text.y=element_text( size = 15)) +
+  ylim(5,200)
+growth_plot
 ## <Philip Sweet> philipjsweet@utexas.edu
 
